@@ -361,7 +361,12 @@ func (s *SimContext) RequestStarted(req api.Request) {
 
 // GetResponseTokens generates response tokens for req from the configured dataset.
 func (s *SimContext) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
-	return s.dataset.GetResponseTokens(req)
+	responseTokens, finishReason, err := s.dataset.GetResponseTokens(req)
+	if err != nil {
+		return responseTokens, finishReason, err
+	}
+	tokenizer.RememberTokenized(s.Tokenizer, responseTokens)
+	return responseTokens, finishReason, nil
 }
 
 // KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.

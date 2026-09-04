@@ -46,6 +46,21 @@ type Tokenizer interface {
 	Detokenize(tokenIDs []uint32) (string, error)
 }
 
+// tokenMappingRecorder is implemented by tokenizers that need to remember
+// externally produced token/string pairs before they can detokenize them.
+// Tokenizers backed by a real render service do not need to implement it.
+type tokenMappingRecorder interface {
+	RememberTokenized(tokenized *api.Tokenized)
+}
+
+// RememberTokenized lets tokenizers that maintain a local reverse map learn
+// token/string pairs produced outside the tokenizer, such as custom datasets.
+func RememberTokenized(t Tokenizer, tokenized *api.Tokenized) {
+	if recorder, ok := t.(tokenMappingRecorder); ok {
+		recorder.RememberTokenized(tokenized)
+	}
+}
+
 type baseTokenizer struct {
 	re *regexp.Regexp
 }
@@ -131,12 +146,28 @@ func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
 // Detokenize can reverse the one-way hashes.
 func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
 	tokens, strTokens := st.baseTokenizer.tokenize(input)
+	st.remember(tokens, strTokens)
+	return tokens, strTokens
+}
+
+// RememberTokenized records the token/string pairs available in tokenized.
+// Unpaired entries are ignored so malformed external data cannot panic.
+func (st *SimpleTokenizer) RememberTokenized(tokenized *api.Tokenized) {
+	if tokenized == nil {
+		return
+	}
+	st.remember(tokenized.Tokens, tokenized.Strings)
+}
+
+func (st *SimpleTokenizer) remember(tokens []uint32, strTokens []string) {
 	st.mu.Lock()
 	for i, id := range tokens {
+		if i >= len(strTokens) {
+			break
+		}
 		st.idToString[id] = strTokens[i]
 	}
 	st.mu.Unlock()
-	return tokens, strTokens
 }
 
 func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
