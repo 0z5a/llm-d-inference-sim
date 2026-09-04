@@ -430,6 +430,33 @@ var _ = Describe("Server", func() {
 				`{"generate_responses":[{"choices":[{"index":0,"token_ids":[]}]}]}`,
 				http.StatusBadRequest, "has empty or null token_ids"),
 		)
+
+		DescribeTable("request resource bounds",
+			func(endpoint, reqBody, expectedMsg string) {
+				client, err := startServerWithArgs(context.TODO(), []string{
+					"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+					"--max-num-seqs", "2", "--max-model-len", "2",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				status, body := post(client, endpoint, reqBody)
+				Expect(status).To(Equal(http.StatusBadRequest))
+				Expect(string(body)).To(ContainSubstring(expectedMsg))
+			},
+			Entry("rejects too many chat choices", "/v1/chat/completions/derender",
+				`{"generate_response":{"request_id":"r","choices":[`+
+					`{"index":0,"token_ids":[1]},{"index":1,"token_ids":[1]},{"index":2,"token_ids":[1]}]}}`,
+				"choices count (3) in response 'r' exceeds server maximum (2)"),
+			Entry("rejects too many completion responses", "/v1/completions/derender",
+				`{"generate_responses":[`+
+					`{"request_id":"a","choices":[{"index":0,"token_ids":[1]}]},`+
+					`{"request_id":"b","choices":[{"index":0,"token_ids":[1]}]},`+
+					`{"request_id":"c","choices":[{"index":0,"token_ids":[1]}]}]}`,
+				"generate_responses count (3) exceeds server maximum (2)"),
+			Entry("rejects oversized token arrays", "/v1/completions/derender",
+				`{"generate_responses":[{"request_id":"r","choices":[`+
+					`{"index":7,"token_ids":[1,2,3]}]}]}`,
+				"token_ids length (3) in choice 7 exceeds max_model_len (2)"),
+		)
 	})
 
 	Context("SSL/HTTPS Configuration", func() {

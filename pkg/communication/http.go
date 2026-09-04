@@ -240,7 +240,12 @@ func (c *Communication) handleDerender(req endpoint.DerenderableRequest, ctx *fa
 			return
 		}
 	}
-	resp, apiErr := req.Derender(c.runtime.GetTokenizer(), c.runtime.Config().DisplayModelName, c.logger)
+	config := c.runtime.Config()
+	if err := req.ValidateBounds(config.MaxNumSeqs, config.MaxModelLen); err != nil {
+		c.sendError(ctx, err, false)
+		return
+	}
+	resp, apiErr := req.Derender(c.runtime.GetTokenizer(), config.DisplayModelName, c.logger)
 	if apiErr != nil {
 		c.logger.Error(errors.New(apiErr.Message), "derender failed")
 		c.sendError(ctx, apiErr, false)

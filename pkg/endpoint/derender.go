@@ -37,6 +37,9 @@ type DerenderableRequest interface {
 	// ValidateBody checks that the unmarshalled body matches the endpoint's
 	// expected shape.
 	ValidateBody() *api.Error
+	// ValidateBounds rejects caller-supplied token structures that exceed the
+	// configured per-request resource limits before detokenization begins.
+	ValidateBounds(maxNumSeqs, maxModelLen int) *api.Error
 	// GetModel returns the requested model name; empty means the served model.
 	GetModel() string
 	// Derender detokenizes the carried generation result and assembles the
@@ -66,6 +69,14 @@ func (d *DerenderChatRequest) ValidateBody() *api.Error {
 		return &serverErr
 	}
 	return validateGenerateChoices(d.GenerateResponse)
+}
+
+func (d *DerenderChatRequest) ValidateBounds(maxNumSeqs, maxModelLen int) *api.Error {
+	// Shape validation reports the missing generate_response error.
+	if d.GenerateResponse == nil {
+		return nil
+	}
+	return validateGenerateResponseBounds(d.GenerateResponse, maxNumSeqs, maxModelLen)
 }
 
 func (d *DerenderChatRequest) Derender(tk tokenizer.Tokenizer, displayModel string, _ logr.Logger) (any, *api.Error) {
@@ -127,6 +138,22 @@ func (d *DerenderCompletionRequest) ValidateBody() *api.Error {
 	return nil
 }
 
+func (d *DerenderCompletionRequest) ValidateBounds(maxNumSeqs, maxModelLen int) *api.Error {
+	if len(d.GenerateResponses) > maxNumSeqs {
+		serverErr := api.NewError(
+			fmt.Sprintf("generate_responses count (%d) exceeds server maximum (%d)",
+				len(d.GenerateResponses), maxNumSeqs),
+			fasthttp.StatusBadRequest, nil)
+		return &serverErr
+	}
+	for i := range d.GenerateResponses {
+		if err := validateGenerateResponseBounds(&d.GenerateResponses[i], maxNumSeqs, maxModelLen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (d *DerenderCompletionRequest) Derender(tk tokenizer.Tokenizer, displayModel string,
 	logger logr.Logger) (any, *api.Error) {
 	var choices []api.TextRespChoice
@@ -182,6 +209,26 @@ func validateGenerateChoices(gen *api.GenerateResponse) *api.Error {
 	for _, ch := range gen.Choices {
 		if len(ch.TokenIDs) == 0 {
 			serverErr := api.NewError(fmt.Sprintf("choice %d has empty or null token_ids", ch.Index),
+				fasthttp.StatusBadRequest, nil)
+			return &serverErr
+		}
+	}
+	return nil
+}
+
+func validateGenerateResponseBounds(gen *api.GenerateResponse, maxNumSeqs, maxModelLen int) *api.Error {
+	if len(gen.Choices) > maxNumSeqs {
+		serverErr := api.NewError(
+			fmt.Sprintf("choices count (%d) in response '%s' exceeds server maximum (%d)",
+				len(gen.Choices), gen.GenRequestID, maxNumSeqs),
+			fasthttp.StatusBadRequest, nil)
+		return &serverErr
+	}
+	for _, choice := range gen.Choices {
+		if len(choice.TokenIDs) > maxModelLen {
+			serverErr := api.NewError(
+				fmt.Sprintf("token_ids length (%d) in choice %d exceeds max_model_len (%d)",
+					len(choice.TokenIDs), choice.Index, maxModelLen),
 				fasthttp.StatusBadRequest, nil)
 			return &serverErr
 		}

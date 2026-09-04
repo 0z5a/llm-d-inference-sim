@@ -125,6 +125,31 @@ var _ = Describe("derender requests", func() {
 				`{"generate_response":{"choices":[{"index":2,"token_ids":[]}]}}`,
 				"choice 2 has empty or null token_ids"),
 		)
+
+		DescribeTable("resource bounds",
+			func(body string, maxNumSeqs, maxModelLen int, expectedMsg string) {
+				req := unmarshalChat(body)
+				err := req.ValidateBounds(maxNumSeqs, maxModelLen)
+				if expectedMsg == "" {
+					Expect(err).To(BeNil())
+					return
+				}
+				Expect(err).NotTo(BeNil())
+				Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+				Expect(err.Message).To(ContainSubstring(expectedMsg))
+			},
+			Entry("accepts choices and tokens at the limits",
+				`{"generate_response":{"request_id":"r","choices":[`+
+					`{"index":0,"token_ids":[1,2]},{"index":1,"token_ids":[3,4]}]}}`,
+				2, 2, ""),
+			Entry("rejects too many choices",
+				`{"generate_response":{"request_id":"r","choices":[`+
+					`{"index":0,"token_ids":[1]},{"index":1,"token_ids":[2]},{"index":2,"token_ids":[3]}]}}`,
+				2, 8, "choices count (3) in response 'r' exceeds server maximum (2)"),
+			Entry("rejects oversized token arrays",
+				`{"generate_response":{"request_id":"r","choices":[{"index":7,"token_ids":[1,2,3]}]}}`,
+				2, 2, "token_ids length (3) in choice 7 exceeds max_model_len (2)"),
+		)
 	})
 
 	Describe("completions", func() {
@@ -206,6 +231,38 @@ var _ = Describe("derender requests", func() {
 			Entry("rejects empty token_ids",
 				`{"generate_responses":[{"choices":[{"index":1,"token_ids":[]}]}]}`,
 				"choice 1 has empty or null token_ids"),
+		)
+
+		DescribeTable("resource bounds",
+			func(body string, maxNumSeqs, maxModelLen int, expectedMsg string) {
+				req := unmarshalCompletion(body)
+				err := req.ValidateBounds(maxNumSeqs, maxModelLen)
+				if expectedMsg == "" {
+					Expect(err).To(BeNil())
+					return
+				}
+				Expect(err).NotTo(BeNil())
+				Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+				Expect(err.Message).To(ContainSubstring(expectedMsg))
+			},
+			Entry("accepts responses, choices, and tokens at the limits",
+				`{"generate_responses":[`+
+					`{"request_id":"a","choices":[{"index":0,"token_ids":[1,2]},{"index":1,"token_ids":[3,4]}]},`+
+					`{"request_id":"b","choices":[{"index":0,"token_ids":[5,6]}]}]}`,
+				2, 2, ""),
+			Entry("rejects too many responses",
+				`{"generate_responses":[`+
+					`{"request_id":"a","choices":[{"index":0,"token_ids":[1]}]},`+
+					`{"request_id":"b","choices":[{"index":0,"token_ids":[2]}]},`+
+					`{"request_id":"c","choices":[{"index":0,"token_ids":[3]}]}]}`,
+				2, 8, "generate_responses count (3) exceeds server maximum (2)"),
+			Entry("rejects too many choices in one response",
+				`{"generate_responses":[{"request_id":"r","choices":[`+
+					`{"index":0,"token_ids":[1]},{"index":1,"token_ids":[2]},{"index":2,"token_ids":[3]}]}]}`,
+				2, 8, "choices count (3) in response 'r' exceeds server maximum (2)"),
+			Entry("rejects oversized token arrays",
+				`{"generate_responses":[{"request_id":"r","choices":[{"index":9,"token_ids":[1,2,3]}]}]}`,
+				2, 2, "token_ids length (3) in choice 9 exceeds max_model_len (2)"),
 		)
 	})
 })
