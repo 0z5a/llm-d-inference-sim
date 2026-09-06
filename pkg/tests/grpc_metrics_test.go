@@ -67,16 +67,18 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 			}()
 		}
 
-		time.Sleep(300 * time.Millisecond)
-		metricsResp, err := httpClient.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+		Eventually(func(g Gomega) {
+			metricsResp, err := httpClient.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 2)))
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 1)))
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 2)))
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 1)))
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
 	It("should send correct token metrics via gRPC", func() {
@@ -107,37 +109,39 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 		err = comm.Generate(&req, &out)
 		Expect(err).NotTo(HaveOccurred())
 
-		time.Sleep(300 * time.Millisecond)
-		metricsResp, err := httpClient.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+		Eventually(func(g Gomega) {
+			metricsResp, err := httpClient.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
 
-		// Check prompt tokens and max tokens bucket distributions
-		buckets := simulator.Build125Buckets(1024)
-		for _, boundary := range buckets {
-			if boundary <= 20 {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.PromptTokensMetricName, boundary, 0)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ParamMaxTokensMetricName, boundary, 0)))
-			} else {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.PromptTokensMetricName, boundary, 1)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ParamMaxTokensMetricName, boundary, 1)))
+			// Check prompt tokens and max tokens bucket distributions
+			buckets := simulator.Build125Buckets(1024)
+			for _, boundary := range buckets {
+				if boundary <= 20 {
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.PromptTokensMetricName, boundary, 0)))
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ParamMaxTokensMetricName, boundary, 0)))
+				} else {
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.PromptTokensMetricName, boundary, 1)))
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ParamMaxTokensMetricName, boundary, 1)))
+				}
 			}
-		}
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.PromptTokensMetricName, math.Inf(1), 1)))
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ParamMaxTokensMetricName, math.Inf(1), 1)))
+			g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.PromptTokensMetricName, math.Inf(1), 1)))
+			g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ParamMaxTokensMetricName, math.Inf(1), 1)))
 
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensCnt)))
+			g.Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensCnt)))
 
-		// Check generation tokens - in echo mode we get the same number of tokens back
-		// We only check the count since the response length is deterministic in echo mode
-		// and skip the bucket distribution.
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.GenerationTokensMetricName+"_count", 1)))
-		// request_success_total
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
+			// Check generation tokens - in echo mode we get the same number of tokens back
+			// We only check the count since the response length is deterministic in echo mode
+			// and skip the bucket distribution.
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.GenerationTokensMetricName+"_count", 1)))
+			// request_success_total
+			g.Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
 	It("should send correct ttft, tpot and inter_token_latency metrics via gRPC", func() {
@@ -180,45 +184,47 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 
 			// Wait for request to complete
 			reqWg.Wait()
-			time.Sleep(300 * time.Millisecond)
-			metricsResp, err := httpClient.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			Eventually(func(g Gomega) {
+				metricsResp, err := httpClient.Get(metricsUrl)
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics := string(data)
-			metricsLines := strings.Split(metrics, "\n")
+				data, err := io.ReadAll(metricsResp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
+				metricsLines := strings.Split(metrics, "\n")
 
-			// Check TTFT buckets
-			for _, boundary := range common.TTFTBucketsBoundaries {
-				if boundary <= 0.1 {
-					// buckets up to 0.1 should be empty
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 0)))
-				} else {
-					// buckets higher than 0.1 should contain a single sample
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 1)))
-				}
-			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, math.Inf(1), 1)))
-
-			// Check TPOT, inter-token latency and request TPOT buckets
-			for _, metricName := range []string{simulator.TPOTMetricName, simulator.InterTokenLatencyMetricName, simulator.ReqTPOTMetricName} {
-				for _, boundary := range common.TPOTBucketsBoundaries {
-					if boundary <= 0.075 {
-						// ensure that values for buckets up to 0.075 have count 0
-						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
+				// Check TTFT buckets
+				for _, boundary := range common.TTFTBucketsBoundaries {
+					if boundary <= 0.1 {
+						// buckets up to 0.1 should be empty
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 0)))
 					} else {
-						// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
-						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
-						Expect(count).ToNot(BeNil())
-						Expect(*count).To(BeNumerically(">", 0))
+						// buckets higher than 0.1 should contain a single sample
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 1)))
 					}
 				}
-				count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, math.Inf(1)))
-				Expect(count).ToNot(BeNil())
-				Expect(*count).To(BeNumerically(">", 0))
-			}
+				g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, math.Inf(1), 1)))
+
+				// Check TPOT, inter-token latency and request TPOT buckets
+				for _, metricName := range []string{simulator.TPOTMetricName, simulator.InterTokenLatencyMetricName, simulator.ReqTPOTMetricName} {
+					for _, boundary := range common.TPOTBucketsBoundaries {
+						if boundary <= 0.075 {
+							// ensure that values for buckets up to 0.075 have count 0
+							g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
+						} else {
+							// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
+							count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
+							g.Expect(count).ToNot(BeNil())
+							g.Expect(*count).To(BeNumerically(">", 0))
+						}
+					}
+					count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, math.Inf(1)))
+					g.Expect(count).ToNot(BeNil())
+					g.Expect(*count).To(BeNumerically(">", 0))
+				}
+			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		}()
 
 		metricsWg.Wait()
@@ -376,26 +382,28 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 		}
 
 		reqWg.Wait()
-		time.Sleep(300 * time.Millisecond)
-		metricsResp, err := httpClient.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+		Eventually(func(g Gomega) {
+			metricsResp, err := httpClient.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
 
-		// Check that inference time and queue time buckets are populated correctly
-		for _, boundary := range common.RequestLatencyBucketsBoundaries {
-			if boundary < 1.5 {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 0)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 0)))
-			} else {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 2)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 1)))
+			// Check that inference time and queue time buckets are populated correctly
+			for _, boundary := range common.RequestLatencyBucketsBoundaries {
+				if boundary < 1.5 {
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 0)))
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 0)))
+				} else {
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 2)))
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 1)))
+				}
 			}
-		}
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, math.Inf(1), 2)))
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, math.Inf(1), 1)))
+			g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, math.Inf(1), 2)))
+			g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, math.Inf(1), 1)))
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 })
