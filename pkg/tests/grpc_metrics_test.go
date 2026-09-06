@@ -286,7 +286,7 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 	It("should send correct kv cache usage metrics via gRPC", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeEcho,
-			"--time-to-first-token", "500ms", "--inter-token-latency", "250ms",
+			"--time-to-first-token", "300ms", "--inter-token-latency", "100ms",
 			"--max-num-seqs", "3", "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8"}
 
 		_, comm, httpClient, err := startServerHandle(ctx, common.ModeEcho, args, map[string]string{"POD_IP": "localhost"})
