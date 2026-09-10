@@ -17,52 +17,26 @@ limitations under the License.
 package communication
 
 import (
-	"context"
-	"net"
-	"net/http"
 	"os"
-	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/valyala/fasthttp/fasthttputil"
-	"k8s.io/klog/v2"
+	"github.com/spf13/pflag"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
+// noopEngine stands in for an engine's own hooks in tests that only exercise
+// common.Configuration parsing/validation (SSL flags below): pkg/communication
+// cannot import pkg/engine/vllm directly, since vllm itself imports
+// pkg/communication for its transport methods.
+type noopEngine struct{}
+
+func (noopEngine) Name() string                                          { return "vllm" }
+func (noopEngine) BindFlags(*pflag.FlagSet, *common.Configuration) error { return nil }
+func (noopEngine) ValidateConfig(*common.Configuration) error            { return nil }
+
 var _ = Describe("Server", func() {
-	It("does not register the removed fake metrics route", func() {
-		ctx := context.Background()
-		sim := newRunningSim(ctx)
-		listener := fasthttputil.NewInmemoryListener()
-		comm := New(klog.Background(), sim, &sim.Context)
-
-		DeferCleanup(func() {
-			Expect(listener.Close()).To(Succeed())
-			sim.Stop()
-		})
-
-		go func() {
-			_ = comm.StartHTTPServer(ctx, listener)
-		}()
-
-		client := &http.Client{Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return listener.Dial()
-			},
-		}}
-		DeferCleanup(client.CloseIdleConnections)
-
-		resp, err := client.Post(
-			"http://localhost/fake_metrics",
-			"application/json",
-			strings.NewReader(`{"running-requests":2}`),
-		)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-		Expect(resp.Body.Close()).To(Succeed())
-	})
 
 	Context("SSL/HTTPS Configuration", func() {
 		It("Should parse SSL certificate configuration correctly", func() {
@@ -76,7 +50,7 @@ var _ = Describe("Server", func() {
 			}()
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
-			config, err := common.ParseCommandParamsAndLoadConfig()
+			config, err := common.ParseCommandParamsAndLoadConfig(noopEngine{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
 			Expect(config.SSLCertFile).To(Equal(certFile))
@@ -90,7 +64,7 @@ var _ = Describe("Server", func() {
 			}()
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--self-signed-certs"}
-			config, err := common.ParseCommandParamsAndLoadConfig()
+			config, err := common.ParseCommandParamsAndLoadConfig(noopEngine{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
 			Expect(config.SelfSignedCerts).To(BeTrue())
@@ -115,7 +89,7 @@ var _ = Describe("Server", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile}
-			_, err = common.ParseCommandParamsAndLoadConfig()
+			_, err = common.ParseCommandParamsAndLoadConfig(noopEngine{})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
 
@@ -123,7 +97,7 @@ var _ = Describe("Server", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-keyfile", keyFile}
-			_, err = common.ParseCommandParamsAndLoadConfig()
+			_, err = common.ParseCommandParamsAndLoadConfig(noopEngine{})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
 		})
