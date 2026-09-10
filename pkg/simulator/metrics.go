@@ -423,10 +423,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 // the fake metrics if set
 func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) error {
 	cacheConfig.WithLabelValues(
-		strconv.Itoa(s.Config().TokenBlockSize),
+		strconv.Itoa(s.Config().KVCache.TokenBlockSize),
 		s.Config().KVCacheDType,
 		"0",
-		strconv.Itoa(s.Config().KVCacheSize),
+		strconv.Itoa(s.Config().KVCache.KVCacheSize),
 	).Set(1)
 
 	if s.Config().FakeMetrics != nil {
